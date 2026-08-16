@@ -22,8 +22,14 @@ has no concept of third-party apps — only one process can own the e-paper
 display, so an app replaces the stock UI rather than living inside it.
 
 Install **[remarkable-loader](https://github.com/x3r081/remarkable-loader)**
-first. It provides the two-corner hold gesture (top-left + bottom-right) that opens
-an **Apps** page and brings you back to the tablet. Then:
+first — it is what lets you reach this app at all.
+
+> **How to open it:** put one finger in the **top-left** corner and another in
+> the **bottom-right** corner at the same time, and hold ~1.2 s. The **Apps**
+> page appears; tap **AI Chat**. The same gesture inside the app takes you
+> back to the tablet.
+
+Then:
 
 1. Add this app to the loader's `switcher/apps.json`:
 
@@ -50,7 +56,8 @@ from the environment or prompt for it.
 ./tools/build.sh rm-chat && ./tools/chatapp.py deploy
 ```
 
-Then open it on the tablet: hold the top-left and bottom-right corners → **AI Chat**.
+Then open it on the tablet: hold the **top-left and bottom-right corners**
+together for ~1.2 s → **AI Chat**.
 
 ## Configuration — done on the tablet
 
