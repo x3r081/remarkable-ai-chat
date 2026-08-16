@@ -7,7 +7,12 @@ APP_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 restore() {
     echo "[wrapper] restarting xochitl"
-    systemctl start xochitl
+    # --no-block is essential. When systemd is stopping this unit, a blocking
+    # `systemctl start` from inside the unit's own cgroup waits for a job that
+    # systemd will not schedule until the stop completes - a deadlock that
+    # hangs until TimeoutStopSec (90 s by default) force-kills everything,
+    # leaving the app's last frame frozen on the panel the whole time.
+    systemctl --no-block start xochitl
 }
 trap restore EXIT INT TERM
 

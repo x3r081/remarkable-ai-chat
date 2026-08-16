@@ -11,6 +11,11 @@ WorkingDirectory=/home/root/rm-chat
 ExecStart=/home/root/rm-chat/run-on-device.sh
 Restart=on-failure
 RestartSec=10
+# Belt and braces: systemd restores the UI itself once the app has exited,
+# outside the app's cgroup, so this can never deadlock.
+ExecStopPost=/bin/systemctl --no-block start xochitl
+# Never let a wedged exit hold the screen for the 90 s default.
+TimeoutStopSec=15
 
 [Install]
 WantedBy=multi-user.target
