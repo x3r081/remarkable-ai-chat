@@ -1,0 +1,16 @@
+[Unit]
+Description=reMarkable AI chat (handwriting to OpenAI-compatible models)
+After=xochitl.service network-online.target
+RequiresMountsFor=/home
+StartLimitBurst=3
+StartLimitIntervalSec=120
+
+[Service]
+Type=simple
+WorkingDirectory=/home/root/rm-chat
+ExecStart=/home/root/rm-chat/run-on-device.sh
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
