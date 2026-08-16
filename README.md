@@ -22,8 +22,8 @@ has no concept of third-party apps — only one process can own the e-paper
 display, so an app replaces the stock UI rather than living inside it.
 
 Install **[remarkable-loader](https://github.com/x3r081/remarkable-loader)**
-first. It provides the 4-finger-hold gesture that opens an **Apps** page and
-brings you back to the tablet. Then:
+first. It provides the two-corner hold gesture (top-left + bottom-right) that opens
+an **Apps** page and brings you back to the tablet. Then:
 
 1. Add this app to the loader's `switcher/apps.json`:
 
@@ -50,7 +50,7 @@ from the environment or prompt for it.
 ./tools/build.sh rm-chat && ./tools/chatapp.py deploy
 ```
 
-Then open it on the tablet: 4-finger hold → **AI Chat**.
+Then open it on the tablet: hold the top-left and bottom-right corners → **AI Chat**.
 
 ## Configuration — done on the tablet
 
@@ -88,7 +88,9 @@ Gemini's OpenAI-compatible endpoint, llama.cpp and Ollama.
 Write in the pad with the pen and tap **Send**. **Clear** empties the pad,
 **Keys** switches to typed input, **New** starts a fresh conversation
 (history otherwise persists across restarts). API errors appear as bubbles in
-the conversation. A **4-finger hold** exits to the tablet.
+the conversation. Holding the **top-left and bottom-right corners** exits to
+the tablet — the app implements this itself as a backstop, so it can always
+get home even if the loader's daemon is not running.
 
 ## Testing without hands or credits
 

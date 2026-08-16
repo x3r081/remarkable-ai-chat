@@ -415,20 +415,34 @@ Window {
 
     property var activeSettingsField: null
 
-    // ==================================================== exit gesture (4fh)
-    // Backstop to the system-wide modeswitch daemon: hold 4 fingers ~1.6 s to
-    // quit; run-on-device.sh then restores xochitl.
     MultiPointTouchArea {
+        id: exitGesture
         anchors.fill: parent
         mouseEnabled: false
-        minimumTouchPoints: 4
-        maximumTouchPoints: 4
+        minimumTouchPoints: 2
+        maximumTouchPoints: 5
         touchPoints: [
             TouchPoint { id: xp1 }, TouchPoint { id: xp2 },
-            TouchPoint { id: xp3 }, TouchPoint { id: xp4 }
+            TouchPoint { id: xp3 }, TouchPoint { id: xp4 },
+            TouchPoint { id: xp5 }
         ]
-        readonly property bool holding: xp1.pressed && xp2.pressed &&
-                                        xp3.pressed && xp4.pressed
+
+        // Same trigger as the loader: opposite corners held together. A hand
+        // resting while you write covers one contiguous area and cannot span
+        // both, which a plain "4 fingers" test could not distinguish.
+        readonly property int corner: 450
+        readonly property bool holding: {
+            let a = false, b = false;
+            for (const p of [xp1, xp2, xp3, xp4, xp5]) {
+                if (!p.pressed)
+                    continue;
+                if (p.x <= corner && p.y <= corner)
+                    a = true;
+                if (p.x >= width - corner && p.y >= height - corner)
+                    b = true;
+            }
+            return a && b;
+        }
         onHoldingChanged: holding ? exitHold.restart() : exitHold.stop()
     }
 
