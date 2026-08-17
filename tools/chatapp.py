@@ -305,6 +305,7 @@ def cmd_test(args):
             "--dir /tmp/rm-chat-test --auto-send-ms 14000 "
             ">/tmp/rm-chat-e2e.log 2>&1 & "
             "APPPID=$!; sleep 26; kill $APPPID 2>/dev/null; "
+            "killall rm_chat 2>/dev/null; "
             "cat /tmp/rm-chat-e2e.log; cat /tmp/peninject.log",
             timeout=120)
         print(out)
@@ -333,6 +334,9 @@ def cmd_test(args):
               else "FAIL - see logs above")
         return 0 if ok else 1
     finally:
+        # Never leave an offscreen app behind: a stray process makes the
+        # loader's gesture think an app is in the foreground.
+        ssh("killall rm_chat 2>/dev/null; rm -rf /tmp/rm-chat-test; true", timeout=30)
         tunnel.terminate(force=True)
         server.terminate()
 
