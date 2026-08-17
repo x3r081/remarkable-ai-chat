@@ -1,14 +1,17 @@
 #pragma once
 
-#include <QPolygonF>
+#include <QImage>
 #include <QQuickPaintedItem>
-#include <QTimer>
-#include <QVector>
+#include <QRect>
 
 /*!
- * The handwriting area. Receives pen samples in scene coordinates, keeps the
- * strokes, paints them, and can export the ink as a base64 PNG sized for a
- * vision model.
+ * The handwriting area.
+ *
+ * Ink is accumulated into a persistent image rather than being re-stroked
+ * every frame, and each new segment repaints only its own bounding rectangle.
+ * Both matter a great deal here: repainting the whole pad made the e-paper
+ * backend push the entire region on every pen sample, which is what made
+ * writing feel laggy compared with the stock UI.
  */
 class InkCanvas : public QQuickPaintedItem
 {
@@ -21,7 +24,7 @@ public:
 
     void paint(QPainter *painter) override;
 
-    bool hasInk() const { return !m_strokes.isEmpty() || m_current.size() > 1; }
+    bool hasInk() const { return m_hasInk; }
 
     Q_INVOKABLE void penSample(qreal sceneX, qreal sceneY, bool down);
     Q_INVOKABLE void clear();
@@ -33,11 +36,16 @@ public:
 signals:
     void inkChanged();
 
-private:
-    void scheduleRepaint();
+protected:
+    void geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry) override;
 
-    QVector<QPolygonF> m_strokes;   // finished strokes, item-local coords
-    QPolygonF m_current;            // stroke being written
-    bool m_wasDown = false;
-    QTimer m_repaint;               // e-paper friendly update throttle
+private:
+    void ensureLayer();
+    void drawSegment(const QPointF &from, const QPointF &to);
+
+    QImage m_layer;          /* persistent ink, item-sized, white background */
+    QPointF m_last;          /* previous point of the stroke in progress */
+    bool m_drawing = false;
+    bool m_hasInk = false;
+    QRect m_inkBounds;       /* bounding box of everything drawn, for export */
 };

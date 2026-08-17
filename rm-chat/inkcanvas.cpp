@@ -1,8 +1,11 @@
 #include "inkcanvas.h"
 
 #include <QBuffer>
-#include <QImage>
+#include <QElapsedTimer>
+#include <QLoggingCategory>
 #include <QPainter>
+
+Q_LOGGING_CATEGORY(lcInk, "rmchat.ink")
 
 namespace {
 constexpr qreal kPenWidth = 4.0;
@@ -15,10 +18,58 @@ InkCanvas::InkCanvas(QQuickItem *parent)
 {
     setOpaquePainting(true);
     setFillColor(Qt::white);
+    // Antialiasing would put grey pixels along every edge, which pushes the
+    // panel onto a slower greyscale waveform. Pure black on white lets it use
+    // its fast monochrome update, and looks crisper on e-paper anyway.
+    setAntialiasing(false);
+    setRenderTarget(QQuickPaintedItem::Image);
+}
 
-    m_repaint.setSingleShot(true);
-    m_repaint.setInterval(40);        // ~25 fps cap; kind to the e-paper
-    connect(&m_repaint, &QTimer::timeout, this, [this] { update(); });
+void InkCanvas::ensureLayer()
+{
+    const QSize want(qMax(1, int(width())), qMax(1, int(height())));
+    if (m_layer.size() == want)
+        return;
+
+    QImage grown(want, QImage::Format_Grayscale8);
+    grown.fill(Qt::white);
+    if (!m_layer.isNull()) {
+        QPainter p(&grown);
+        p.drawImage(0, 0, m_layer);      // keep existing ink across a resize
+    }
+    m_layer = grown;
+}
+
+void InkCanvas::geometryChange(const QRectF &newGeometry, const QRectF &oldGeometry)
+{
+    QQuickPaintedItem::geometryChange(newGeometry, oldGeometry);
+    if (newGeometry.size() != oldGeometry.size())
+        ensureLayer();
+}
+
+void InkCanvas::drawSegment(const QPointF &from, const QPointF &to)
+{
+    ensureLayer();
+
+    QPainter p(&m_layer);
+    p.setRenderHint(QPainter::Antialiasing, false);
+    p.setPen(QPen(Qt::black, kPenWidth, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+    if (from == to)
+        p.drawPoint(to);
+    else
+        p.drawLine(from, to);
+    p.end();
+
+    // Repaint only what actually changed. Using update() with no argument
+    // damages the whole pad, which the e-paper backend then has to push in
+    // full for every single pen sample.
+    const int pad = int(kPenWidth) + 2;
+    QRect dirty = QRectF(from, to).normalized().toAlignedRect()
+                      .adjusted(-pad, -pad, pad, pad);
+    dirty &= QRect(0, 0, m_layer.width(), m_layer.height());
+
+    m_inkBounds = m_inkBounds.isNull() ? dirty : m_inkBounds.united(dirty);
+    update(dirty);
 }
 
 void InkCanvas::penSample(qreal sceneX, qreal sceneY, bool down)
@@ -27,92 +78,81 @@ void InkCanvas::penSample(qreal sceneX, qreal sceneY, bool down)
     const bool inside = boundingRect().contains(local);
 
     if (down && inside) {
-        const bool hadInk = hasInk();
-        m_current.append(local);
-        if (!hadInk)
+        if (!m_drawing) {
+            m_drawing = true;
+            m_last = local;
+            drawSegment(local, local);       // dot for a single tap
+        } else {
+            drawSegment(m_last, local);
+            m_last = local;
+        }
+        if (!m_hasInk) {
+            m_hasInk = true;
             emit inkChanged();
-        scheduleRepaint();
-    } else if (m_wasDown && m_current.size() > 1) {
-        // lifted, or wandered off the canvas: finish the stroke
-        m_strokes.append(m_current);
-        m_current.clear();
-        scheduleRepaint();
+        }
     } else {
-        m_current.clear();
+        m_drawing = false;                   // lifted, or left the pad
     }
-    m_wasDown = down && inside;
 }
 
 void InkCanvas::clear()
 {
-    if (!hasInk())
+    if (!m_hasInk)
         return;
-    m_strokes.clear();
-    m_current.clear();
-    m_wasDown = false;
+    ensureLayer();
+    m_layer.fill(Qt::white);
+    m_inkBounds = QRect();
+    m_drawing = false;
+    m_hasInk = false;
     emit inkChanged();
     update();
 }
 
-void InkCanvas::scheduleRepaint()
-{
-    if (!m_repaint.isActive())
-        m_repaint.start();
-}
-
-static void drawStrokes(QPainter *p, const QVector<QPolygonF> &strokes,
-                        const QPolygonF &current, qreal width)
-{
-    QPen pen(Qt::black, width, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin);
-    p->setPen(pen);
-    p->setRenderHint(QPainter::Antialiasing, true);
-    for (const auto &s : strokes) {
-        if (s.size() == 1)
-            p->drawPoint(s.first());
-        else
-            p->drawPolyline(s);
-    }
-    if (current.size() > 1)
-        p->drawPolyline(current);
-}
-
 void InkCanvas::paint(QPainter *painter)
 {
-    drawStrokes(painter, m_strokes, m_current, kPenWidth);
+    if (m_layer.isNull())
+        return;
+    // Cheap self-instrumentation, off unless you ask for it:
+    //   QT_LOGGING_RULES="rmchat.ink.debug=true"
+    static int paints = 0;
+    static qint64 totalUs = 0, totalPx = 0;
+    QElapsedTimer et; et.start();
+    // Only the damaged region is redrawn; the clip is already set for us.
+    const QRect r = painter->clipBoundingRect().toAlignedRect()
+                        .intersected(QRect(0, 0, m_layer.width(), m_layer.height()));
+    if (r.isEmpty())
+        painter->drawImage(0, 0, m_layer);
+    else
+        painter->drawImage(r, m_layer, r);
+
+    ++paints;
+    totalUs += et.nsecsElapsed() / 1000;
+    totalPx += r.isEmpty() ? qint64(m_layer.width()) * m_layer.height()
+                           : qint64(r.width()) * r.height();
+    if (paints % 25 == 0)
+        qCDebug(lcInk, "paints=%d avg=%lldus avg_area=%lldpx",
+               paints, totalUs / paints, totalPx / paints);
 }
 
 QString InkCanvas::exportPngBase64() const
 {
-    QVector<QPolygonF> all = m_strokes;
-    if (m_current.size() > 1)
-        all.append(m_current);
-    if (all.isEmpty())
+    if (!m_hasInk || m_layer.isNull() || m_inkBounds.isNull())
         return QString();
 
-    QRectF box;
-    for (const auto &s : all)
-        box = box.united(s.boundingRect());
-    box.adjust(-kExportPad, -kExportPad, kExportPad, kExportPad);
+    QRect box = m_inkBounds.adjusted(-kExportPad, -kExportPad, kExportPad, kExportPad)
+                    .intersected(QRect(0, 0, m_layer.width(), m_layer.height()));
+    if (box.isEmpty())
+        return QString();
 
-    qreal scale = 1.0;
-    const qreal longest = qMax(box.width(), box.height());
+    QImage out = m_layer.copy(box);
+    const int longest = qMax(out.width(), out.height());
     if (longest > kExportMaxDim)
-        scale = kExportMaxDim / longest;
-
-    QImage img(qMax(1, int(box.width() * scale)),
-               qMax(1, int(box.height() * scale)),
-               QImage::Format_Grayscale8);
-    img.fill(Qt::white);
-
-    QPainter p(&img);
-    p.scale(scale, scale);
-    p.translate(-box.topLeft());
-    drawStrokes(&p, m_strokes, m_current, kPenWidth / scale);
-    p.end();
+        out = out.scaled(out.size() * (qreal(kExportMaxDim) / longest),
+                         Qt::KeepAspectRatio, Qt::SmoothTransformation);
 
     QByteArray bytes;
     QBuffer buf(&bytes);
     buf.open(QIODevice::WriteOnly);
-    img.save(&buf, "PNG");
+    out.save(&buf, "PNG");
     return QString::fromLatin1(bytes.toBase64());
 }

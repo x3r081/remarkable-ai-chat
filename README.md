@@ -127,6 +127,20 @@ apps, and the touch controller suppresses fingers while the pen is near the
 glass — so a touch-only app looks frozen when you use the pen. This app reads
 the Wacom digitizer directly and synthesizes mouse events.
 
+**Ink latency.** Writing feels sluggish unless three things are avoided, all
+of which a naive `QQuickPaintedItem` does by default:
+
+| Trap | Effect | Fix here |
+|---|---|---|
+| Throttling repaints behind a timer | adds its full interval to every stroke | draw on the sample itself |
+| `update()` with no argument | damages the whole pad, so the panel pushes ~610,000 px per pen sample | `update(dirtyRect)` — ~1,700 px, **362× less** |
+| Re-stroking the whole path each frame | cost grows as you write | accumulate into a persistent image, draw only the new segment |
+
+Antialiasing is also off: grey edge pixels push the panel onto a slower
+greyscale waveform, where pure black on white can use its fast monochrome
+update. Enable `QT_LOGGING_RULES="rmchat.ink.debug=true"` to see per-paint
+timing and damaged area.
+
 ## Privacy
 
 Your API key is entered on the tablet (or pushed over USB with `setkey`) and
